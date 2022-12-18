@@ -11,15 +11,15 @@ let s:config['print_cmd'] = 'p'
 
 " frame #0: 0x0000000100000f74 a.out`main(argc=1, argv=0x00007ffeefbff700) at a.c:5:2
 let s:config['locate_pattern'] = {
-      \ 'short': '^\s*frame #',
-      \ 'long': '\v^\s*frame #\d+: .+ at ([^:]+):(\d+):\d+',
+      \ 'short': '^.*frame #',
+      \ 'long': '\v^.*frame #\d+: .+ at ([^:]+):(\d+):\d+',
       \ 'index': [1, 2],
       \ }
 
 " Breakpoint 4: where = a.out`main + 22 at a.c:4:2, address = 0x0000000100000f66
 let s:config['new_breakpoint_pattern'] = {
-      \ 'short': '^Breakpoint \d\+: ',
-      \ 'long': '\v^Breakpoint (\d+): where = .+ at ([^:]+):(\d+):\d+, .*$',
+      \ 'short': '^.*Breakpoint \d\+: ',
+      \ 'long': '\v^.*Breakpoint (\d+): where = .+ at ([^:]+):(\d+):\d+, .*$',
       \ 'index': [1, 2, 3],
       \ }
 

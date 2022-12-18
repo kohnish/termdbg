@@ -173,33 +173,15 @@ endfunction
 " 因为绝大多数程序的标准输出是行缓冲的，所以一般情况下（手动输入除外），
 " msg 是成整行的，可能是多个整行
 " BUG: 虽然 msg 每次过来基本可以确定是整行的，但是行之间的顺序是不定的！
+let s:stdout_buf = ""
 function termdbg#on_stdout(job_id, msg)
-  "echomsg string(a:msg)
-  if get(s:config, 'trim_ansi_escape')
-    " 去除 ipdb 的转义字符
-    let lines = split(s:TrimAnsiEscape(a:msg), "\r")
-  else
-    let lines = split(a:msg, "\r")
-  endif
-
-  for idx in range(len(lines))
-    " 去除 "^\n"
-    let lines[idx] = substitute(lines[idx], '^\n', '', '')
-  endfor
-
-  " 去除 ipdb 中多余的空行输出
-  if get(s:config, 'trim_ansi_escape')
-    call filter(lines, {idx, val -> val !~# '^\s\+$'})
-    call filter(lines, '!empty(v:val)')
-  endif
-
-  call extend(s:cache_lines, lines)
-  if len(s:cache_lines) > 100
-    call filter(s:cache_lines, {idx, val -> idx >= len(s:cache_lines) - 100})
-  endif
-
-  " 无脑逐行匹配动作！
-  for line in reverse(lines)
+    if a:msg =~# "^.*" .. s:prompt .. ".*$"
+        let s:stdout_buf = s:stdout_buf .. a:msg
+    else
+        let s:stdout_buf = s:stdout_buf .. a:msg
+        return
+    endif
+    let line = system('sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"', s:stdout_buf)
     call s:dbg(line)
     if line =~# s:config.locate_pattern.short
       " 光标定位
@@ -211,8 +193,17 @@ function termdbg#on_stdout(job_id, msg)
     elseif !empty(s:config.del_breakpoint_pattern.short) && line =~# s:config.del_breakpoint_pattern.short
       call s:HandleDelBreakpoint(line)
     endif
-  endfor
+    let s:stdout_buf = ""
 endfunction
+
+func s:BufNameFromFileName(filename)
+  for buf in getbufinfo()
+      if buf.loaded && fnamemodify(buf.name, ':t') == a:filename
+          return buf.name
+      endif
+  endfor
+  return ""
+endfunc
 
 " Breakpoint 1 at /Users/eph/a.py:16
 func s:HandleNewBreakpoint(msg)
@@ -220,6 +211,9 @@ func s:HandleNewBreakpoint(msg)
   call s:dbg(matches)
   let nr = get(matches, 1, 0)
   let file = get(matches, 2, '')
+  if !filereadable(file)
+      let file = s:BufNameFromFileName(file)
+  endif
   let lnum = get(matches, 3, 0)
   if nr == 0 || empty(file) || lnum == 0
     return
@@ -381,9 +375,10 @@ func termdbg#LocateCursor(msg)
   let fname = ''
   if len(matches) >= 3
     let fname = matches[s:config.locate_pattern.index[0]]
-    if filereadable(fname)
-      let lnum = str2nr(matches[s:config.locate_pattern.index[1]])
+    if !filereadable(fname)
+        let fname = s:BufNameFromFileName(matches[s:config.locate_pattern.index[0]])
     endif
+    let lnum = str2nr(matches[s:config.locate_pattern.index[1]])
   endif
   "if empty(fname) || !s:isabs(fname)
   if empty(fname)
@@ -459,26 +454,44 @@ endfunction
 
 func s:InstallCommands()
   command TNext call s:TermdbgNext()
+  command TN call s:TermdbgNext()
   command TStep call s:TermdbgStep()
+  command TS call s:TermdbgStep()
   command TFinish call s:TermdbgFinish()
+  command TF call s:TermdbgFinish()
   command TContinue call s:TermdbgContinue()
+  command TC call s:TermdbgContinue()
   command TLocateCursor call s:LocateCursor()
+  command TL call s:LocateCursor()
   command TBreakpoint call s:SetBreakpoint()
+  command TBR call s:SetBreakpoint()
   command TClearBreak call termdbg#ClearBreakpoint()
+  command TCB call termdbg#ClearBreakpoint()
   command TToggleBreak call s:ToggleBreak()
+  command TB call s:ToggleBreak()
   command -nargs=1 TSendCommand call s:SendCommand(<q-args>)
+  command -nargs=1 TSC call s:SendCommand(<q-args>)
 endfunc
 
 func s:DeleteCommands()
   delcommand TNext
+  delcommand TN
   delcommand TStep
+  delcommand TS
   delcommand TFinish
+  delcommand TF
   delcommand TContinue
+  delcommand TC
   delcommand TLocateCursor
+  delcommand TL
   delcommand TBreakpoint
+  delcommand TBR
   delcommand TClearBreak
+  delcommand TCB
   delcommand TToggleBreak
+  delcommand TB
   delcommand TSendCommand
+  delcommand TSC
 endfunc
 
 func s:DeleteWinbar()
