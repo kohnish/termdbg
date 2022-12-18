@@ -17,5 +17,6 @@ endif
 let s:loaded = 1
 
 command -nargs=+ -complete=file -bang Termdbg call termdbg#StartDebug(<bang>0, '', <q-mods>, <f-args>)
+command -nargs=+ -complete=file -bang TD call termdbg#StartDebug(<bang>0, '', <q-mods>, <f-args>)
 
 " vim:sts=2:sw=2:et:
