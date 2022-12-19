@@ -121,6 +121,8 @@ function termdbg#StartDebug(bang, type, mods, ...) abort
           \ 'term_finish': 'close',
           \ 'curwin': v:true,
           \ })
+    windo wincmd L
+    exec 'vertical resize '. string(&columns * 0.70)
   endif
   let s:dbgwin = win_getid(winnr())
 
@@ -175,25 +177,66 @@ endfunction
 " BUG: 虽然 msg 每次过来基本可以确定是整行的，但是行之间的顺序是不定的！
 let s:stdout_buf = ""
 function termdbg#on_stdout(job_id, msg)
-    if a:msg =~# "^.*" .. s:prompt .. ".*$"
-        let s:stdout_buf = s:stdout_buf .. a:msg
+    if s:prompt == '(lldb) '
+        if a:msg =~# "^.*" .. s:prompt .. ".*$"
+            let s:stdout_buf = s:stdout_buf .. a:msg
+        else
+            let s:stdout_buf = s:stdout_buf .. a:msg
+            return
+        endif
+        let line = system('sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"', s:stdout_buf)
+        call s:dbg(line)
+        if line =~# s:config.locate_pattern.short
+          " 光标定位
+          if !termdbg#LocateCursor(line)
+            execute 'sign unplace' s:pc_id
+          endif
+        elseif line =~# s:config.new_breakpoint_pattern.short
+          call s:HandleNewBreakpoint(line)
+        elseif !empty(s:config.del_breakpoint_pattern.short) && line =~# s:config.del_breakpoint_pattern.short
+          call s:HandleDelBreakpoint(line)
+        endif
+        let s:stdout_buf = ""
     else
-        let s:stdout_buf = s:stdout_buf .. a:msg
-        return
-    endif
-    let line = system('sed -r "s/\x1B\[([0-9]{1,2}(;[0-9]{1,2})?)?[m|K]//g"', s:stdout_buf)
-    call s:dbg(line)
-    if line =~# s:config.locate_pattern.short
-      " 光标定位
-      if !termdbg#LocateCursor(line)
-        execute 'sign unplace' s:pc_id
+      "echomsg string(a:msg)
+      if get(s:config, 'trim_ansi_escape')
+        " 去除 ipdb 的转义字符
+        let lines = split(s:TrimAnsiEscape(a:msg), "\r")
+      else
+        let lines = split(a:msg, "\r")
       endif
-    elseif line =~# s:config.new_breakpoint_pattern.short
-      call s:HandleNewBreakpoint(line)
-    elseif !empty(s:config.del_breakpoint_pattern.short) && line =~# s:config.del_breakpoint_pattern.short
-      call s:HandleDelBreakpoint(line)
+
+      for idx in range(len(lines))
+        " 去除 "^\n"
+        let lines[idx] = substitute(lines[idx], '^\n', '', '')
+      endfor
+
+      " 去除 ipdb 中多余的空行输出
+      if get(s:config, 'trim_ansi_escape')
+        call filter(lines, {idx, val -> val !~# '^\s\+$'})
+        call filter(lines, '!empty(v:val)')
+      endif
+
+      call extend(s:cache_lines, lines)
+      if len(s:cache_lines) > 100
+        call filter(s:cache_lines, {idx, val -> idx >= len(s:cache_lines) - 100})
+      endif
+
+      " 无脑逐行匹配动作！
+      for line in reverse(lines)
+        call s:dbg(line)
+        if line =~# s:config.locate_pattern.short
+          " 光标定位
+          if !termdbg#LocateCursor(line)
+            execute 'sign unplace' s:pc_id
+          endif
+        elseif line =~# s:config.new_breakpoint_pattern.short
+          call s:HandleNewBreakpoint(line)
+        elseif !empty(s:config.del_breakpoint_pattern.short) && line =~# s:config.del_breakpoint_pattern.short
+          call s:HandleDelBreakpoint(line)
+        endif
+      endfor
     endif
-    let s:stdout_buf = ""
 endfunction
 
 func s:BufNameFromFileName(filename)
@@ -362,6 +405,10 @@ endfunction
 
 " 返回 0 表示定位失败，否则表示定位成功
 func termdbg#LocateCursor(msg)
+    " temporary workaround for handling bt
+  if a:msg =~? '^bt\r.*'
+      return 1
+  endif
   if a:msg !~# s:config.locate_pattern.short
     return 0
   endif
